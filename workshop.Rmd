@@ -1,0 +1,871 @@
+---
+title: "Visualize Data"
+output: 
+  learnr::tutorial:
+    progressive: true
+    allow_skip: true
+    theme: "yeti" 
+runtime: shiny_prerendered
+---
+
+```{r setup, include=FALSE}
+library(learnr)
+library(tidyverse)
+library(colorspace)
+library(DT)
+library(ggpubr)
+library(corrplot)
+library(glue)
+library(EnvStats)
+library(highcharter)
+library(sf)
+
+# options(repos = BiocManager::repositories())
+
+knitr::opts_chunk$set(echo = FALSE, warning = F, message = F, fig.width = 8, fig.height = 6)
+
+# pop_dat <- read_csv("data/cc-est2019-alldata.csv") %>%
+#   janitor::clean_names() %>%
+#   mutate(fips = paste0(state, county)) %>%
+#   select(-state)%>%
+#   filter(year == 1) %>%
+#   filter(agegrp == 0) %>%
+#   mutate(white_perc = ((wa_male+wa_female)/tot_pop)*100) %>%
+#   mutate(black_perc = ((ba_male+ba_female)/tot_pop)*100) %>%
+#   mutate(nonwhite_or_mixed_perc = 100 - white_perc) %>%
+#   select(fips, white_perc, nonwhite_or_mixed_perc, black_perc, tot_pop)
+# 
+# county_dat <- xlsx::read.xlsx("data/ruralurbancodes2013.xls", sheetIndex = 1)  %>%
+#   janitor::clean_names() %>%
+#   separate(description, sep = " - ", into = "metro", remove = F) %>%
+#   select(-state, -county_name, -population_2010)
+# 
+# saveRDS(pop_dat, file = "data/pop_dat.rds")
+# saveRDS(county_dat, file = "data/county_dat.rds")
+
+# pop_dat <- readRDS("data/pop_dat.rds")
+# county_dat <- readRDS("data/county_dat.rds")
+
+  
+# pop_dat 
+options(scipen = 999)
+
+elex <- read_csv("https://raw.githubusercontent.com/favstats/USElection2020-NYT-Results/master/data/2020-11-10%2000-08-35/results_president.csv") %>% 
+  # left_join(pop_dat) %>% 
+  # left_join(county_dat) %>% 
+  mutate(absentee_perc = absentee_votes/votes*100,
+         jorgensen_perc = results_jorgensenj/votes*100,
+         logged_votes = log(votes),
+         trump_perc = results_trumpd/votes*100,
+         biden_perc = results_bidenj/votes*100) %>% 
+  # mutate(county_size = str_trim(description),
+         # county_size = str_remove_all(county_size, ", adjacent to a metro area|, not adjacent to a metro area"),
+         # county_size =  str_wrap(county_size, width = 30)) %>% 
+  # pull(county_size) %>% unique() %>%  dput()
+  mutate(margin2020_cat = case_when(
+    margin2020 >= 80 ~ "Trump +80%",
+    between(margin2020, 60, 80)   ~ "Trump +60-80%",
+    between(margin2020, 40, 60)   ~ "Trump +40-60%",
+    between(margin2020, 20, 40)   ~ "Trump +20-40%",
+    between(margin2020, 0, 20)    ~ "Trump +0-20%",
+    between(margin2020, -20, 0)   ~ "Biden +0-20%",
+    between(margin2020, -40, -20) ~ "Biden +20-40%",
+    between(margin2020, -60, -40) ~ "Biden +40-60%",
+    between(margin2020, -80, -60) ~ "Biden +60-80%",
+    margin2020 <= -80 ~ "Biden +80%"
+  )) %>% 
+  # count(margin2020_cat)
+  mutate(margin2020_cat = fct_relevel(margin2020_cat, c(
+                                                        "Trump +80%",
+                                                        "Trump +60-80%",
+                                                        "Trump +40-60%",
+                                                        "Trump +20-40%",
+                                                        "Trump +0-20%",
+                                                        "Biden +0-20%",
+                                                        "Biden +20-40%",
+                                                        "Biden +40-60%",
+                                                        "Biden +60-80%",
+                                                        "Biden +80%")))# %>% 
+#   mutate(white_perc_cat = case_when(
+#     white_perc >= 80 ~ "+80% White",
+#     between(white_perc, 60, 80)   ~ "+60-80% White",
+#     between(white_perc, 40, 60)   ~ "+40-60% White",
+#     between(white_perc, 20, 40)   ~ "+20-40% White",
+#     between(white_perc, 0, 20)    ~ "+0-20% White"
+#   )) %>% 
+#   mutate(white_perc_cat = fct_relevel(white_perc_cat, c(
+#                                                         "+80% White",
+#                                                         "+60-80% White",
+#                                                         "+40-60% White",
+#                                                         "+20-40% White",
+#                                                         "+0-20% White"))) %>% 
+#   mutate(black_perc_cat = case_when(
+#     black_perc >= 80 ~ "+80% Black",
+#     between(black_perc, 60, 80)   ~ "+60-80% Black",
+#     between(black_perc, 40, 60)   ~ "+40-60% Black",
+#     between(black_perc, 20, 40)   ~ "+20-40% Black",
+#     between(black_perc, 0, 20)    ~ "+0-20% Black"
+#   )) %>% 
+#   mutate(black_perc_cat = fct_relevel(black_perc_cat, c(
+#                                                         "+80% Black",
+#                                                         "+60-80% Black",
+#                                                         "+40-60% Black",
+#                                                         "+20-40% Black",
+#                                                         "+0-20% Black"))) %>% 
+#   mutate(county_size = fct_relevel(county_size,
+#     c(
+#       "Nonmetro - Completely rural\nor less than 2,500 urban\npopulation",
+#       "Nonmetro - Urban population of\n2,500 to 19,999", 
+#       "Nonmetro - Urban population of\n20,000 or more", 
+#       "Metro - Counties in metro\nareas of fewer than 250,000\npopulation", 
+#       "Metro - Counties in metro\nareas of 250,000 to 1 million\npopulation", 
+#       "Metro - Counties in metro\nareas of 1 million population\nor more"
+#     )
+# ))  %>% 
+#   mutate(absentee_perc_cat = case_when(
+#     absentee_perc >= 80 ~ "+80% Absentee",
+#     between(absentee_perc, 60, 80)   ~ "+60-80% Absentee",
+#     between(absentee_perc, 40, 60)   ~ "+40-60% Absentee",
+#     between(absentee_perc, 20, 40)   ~ "+20-40% Absentee",
+#     between(absentee_perc, 0, 20)    ~ "+0-20% Absentee"
+#   )) %>% 
+#   mutate(absentee_perc_cat = fct_relevel(absentee_perc_cat, c(
+#                                                         "+0-20% Absentee",
+#                                                         "+20-40% Absentee",
+#                                                         "+40-60% Absentee",
+#                                                         "+60-80% Absentee",
+#                                                         "+80% Absentee"
+#                                                         ))) 
+
+
+elex_finished <- elex %>% 
+  filter(eevp == 100)
+
+
+fntltp <- JS("function(){
+  return this.point.x + ' ' +  this.series.yAxis.categories[this.point.y] + ': ' +
+  Highcharts.numberFormat(this.point.value, 2);
+}")
+
+plotline <- list(
+  color = "#fde725", value = 1963, width = 2, zIndex = 5,
+  label = list(
+    text = "Measles Vaccine Introduced", verticalAlign = "top",
+    style = list(color = "#606060"), textAlign = "left",
+    rotation = 0, y = -5
+))
+
+
+covid_ecdc <- read_csv("https://opendata.ecdc.europa.eu/covid19/casedistribution/csv") %>%
+  janitor::clean_names()  %>% 
+  mutate(date_rep = lubridate::dmy(date_rep)) %>% 
+  select(-geo_id, -countryterritory_code, -continent_exp, -day, -month, -year)  %>% 
+  rename(avg_14days_cases_per100k = cumulative_number_for_14_days_of_covid_19_cases_per_100000,
+         cntry = countries_and_territories) %>% 
+  mutate(avg_14days_cases_per100k = ifelse(is.na(avg_14days_cases_per100k), 0, avg_14days_cases_per100k)) %>% 
+  group_by(cntry) %>% 
+  arrange(date_rep)
+
+elex_map <- readRDS("data/elex_map.RDS")
+
+
+battleground_states <- c("pennsylvania", "georgia", "arizona", "north-carolina", "wisconsin", "michigan", "nevada")
+
+```
+
+## Welcome
+
+### Let's get started
+
+![](images/header.png){width="99%"}
+
+> This is my favorite part about analytics: taking boring flat data and *bringing it to life* through **visualization**. <br>
+>
+> <p align="right">
+>
+> --- John Tukey
+>
+> </p>
+
+Welcome to this workshop for data visualization in R. This is an interactive tutorial build with `learnr`. You can run the code provided in this tutorial yourself and play around with the data to your heart's content.
+
+This workshop is broadly based on the [*Exploratory Data Analysis*](https://r4ds.had.co.nz/exploratory-data-analysis.html) chapter of the *R for Data Science* book by Hadley Wickham and Garrett Grolemund (the book is publically accessible [here](https://r4ds.had.co.nz)).
+
+<hr>
+
+Contact: Fabio Votta 
+
+<a href="http://github.com/favstats"><i class="fa fa-github fa-fw"></i>&nbsp;favstats</a> 
+
+<a href="https://twitter.com/favstats"> <i class="fa fa-twitter fa-fw"></i>&nbsp;@favstats</a>
+
+<a href="http://www.favstats.eu/"><i class="fa fa-address-card"></i>&nbsp; www.favstats.eu</a>
+
+### Before we dive in: a word of encouragement
+
+![](https://develop-rpkgs.netlify.app/images/r_first_then_new.png){width="99%"}
+
+<p style="font-size: 70%;">Illustration adapted from [Allison Horst](https://github.com/allisonhorst/)</p>
+
+-   My experience is that this stuff isn't always super easy... but it gets better!
+
+Mostly because of:
+
+-   Awesome inclusive community that is always ready to help
+-   Great documentation of existing packages and functions
+-   Active blogosphere with use cases and examples
+-   and much more!
+
+## Why Data Visualization
+
+### COVID-19 Example
+
+Here is some data from the *European Centre for Disease Prevention and Control* ([ECDC](https://www.ecdc.europa.eu/en)) retrieved from [here](https://opendata.ecdc.europa.eu/covid19/casedistribution). The next "chunk" (a window into R) will filter the dataset to only include numbers for the Netherlands but the full dataset has the COVID-19 data from all over the world.
+
+How much sense can you make of this data of daily COVID-19 data in the Netherlands?
+
+*Click on **Run Code** to show a table.*\`
+
+```{r datable, exercise=TRUE}
+covid_ecdc %>% 
+  ## filter dataset to only the netherlands
+  filter(cntry == "Netherlands") 
+```
+
+Or we just let the data speak to us graphically. You can also try putting in different *variables* for the y-axis, so for example `y = deaths` or `y = avg_14days_cases_per100k`.
+
+```{r covid-visualization-1, exercise=TRUE, fig.width=8, fig.height=6}
+
+covid_ecdc %>% 
+  ## filter dataset to only the netherlands
+  filter(cntry == "Netherlands") %>% 
+  ## data visualization
+  ggplot(aes(x = date_rep, y = cases)) +
+  geom_line() +
+  theme_minimal()
+
+```
+
+Without a doubt, a graph let's us quickly understand trends and gives us insights about our data we cannot easily extract from looking at numbers alone.
+
+Exploring data visually helps to:
+
+1.  better understand data (your own and from others)
+2.  communicate results
+3.  convince and make an argument for
+4.  uncover mistakes that you wouldn't have noticed otherwise.
+
+## Exploratory Data Analysis (EDA)
+
+### What is EDA?
+
+EDA is the process by which you extract insights from your data by continuously asking and answering questions about your data. This process includes
+
+1.  Transformation
+
+-   shaping the data into the right format
+
+2.  Visualization
+
+-   making the data visible
+
+3.  Modeling
+
+-   Applying statistical methods
+
+### EDA is Adventure
+
+![](https://raw.githubusercontent.com/allisonhorst/stats-illustrations/master/rstats-artwork/data_cowboy.png){width="99%"}
+
+<p style="font-size: 70%;">Illustration adapted from [Allison Horst](https://github.com/allisonhorst/)</p>
+
+EDA should not be seen as a strict method with a clear set of rules that you can never deviate from.
+
+Instead it should be seen as an *adventure*: every new dataset holds interesting insights, treasures if you will, that can be brought to light with the help of the tools to our disposal.
+
+And like every good adventure, not everything might go right at first try. There is a process of *trial and error*, learning and adapting that goes into EDA.
+
+For each dataset that you will be confronted with, this learning experience might be a bit different.
+
+### Asking Questions
+
+The first goal of EDA is to get a better understanding about your data and the patterns that lie within it. The starting point for that is to **ask questions**.
+
+It is not particularly important which questions you may have for your data. It is more important to start asking them in the first place and coming up with pathways that help you answer them.
+
+Questions to ask your data can roughly fall into two buckets:
+
+How does variation occur **within** variables?
+
+-   So for example: how does the distribution of wealth look like?
+
+How does variation occur **between** variables (i.e. covariation)?
+
+-   So for example: how does wealth correlate with education or minority background?
+
+### Types of Data
+
+Another important aspect of data exploration is to figure out what your *data type* is. For the purposes of data visualization two main types are important:
+
+-   Categorical Data
+-   Continuous Data
+
+
+<p style="font-size: 70%;">(technically there is also ordinal data but we can treat that as a special case of categorical data)</p>
+
+
+![](images/continuous_nominal_binary.png){width="99%"}
+
+<p style="font-size: 70%;">Illustration adapted from [Allison Horst](https://github.com/allisonhorst/)</p>
+
+Dependent on what type your data comes in, different visualization methods might be feasible.
+
+## Continuous Data
+
+Let's first start by exploring *continuous data*.
+
+For this we are going to take a look at the *preliminary* county-level results of the US 2020 election retrieved from the New York Times (available [here](https://github.com/favstats/USElection2020-NYT-Results)).
+
+```{r, election-example-vis, exercise=TRUE}
+plot_title <- "Preliminary Results of US 2020 Election"
+plot_subtitle <-  "Note: In many counties votes are still being counted.\n"
+plot_caption <- "\nSource: New York Times. Last updated: 2020-11-07"
+
+
+elex_map %>%
+  ggplot(aes(fill = margin2020_cat)) +
+  geom_sf(color = NA)   +
+  ## background white
+  theme_void() +
+  ## add blue red color scale
+  scale_fill_discrete_diverging("Blue-Red 2",
+                       name = "Margins")  +
+  ## add labels to the plot
+  labs(title = plot_title,
+       subtitle = plot_subtitle,
+       caption = plot_caption)
+```
+
+### Variation in Continuous Data
+
+Let's first examine the `eevp` variable, which is a continuous variable that shows the share of votes that have already been counted (based on an expected total vote count of the New York Times).
+
+You can visualize the distribution of this continuous variable with a histogram, like the one below:
+
+```{r, election-example-vis-0, exercise=TRUE}
+elex %>% 
+  ggplot(aes(eevp)) +
+  geom_histogram() +
+  theme_minimal()
+```
+
+In histograms, tall bars show the common values of a variable, i.e. the values that appear frequently. Shorter bars show less-common values, i.e. values that appear infrequently. Places that do not have bars reveal values that were not seen in your data. To turn this information into useful questions, look for anything unexpected:
+
+
+The skewed distribution towards the right end of the graph shows us at that the vast majority of counties have finished counting. For the following graphs we are going to use data from those counties that finished counting so we do not bias our interpretations. We create the sub-dataset `elex_finished` which excludes counties where votes are still being counted.
+
+```{r, election-example-vis-0-5, exercise=TRUE}
+elex_finished <- elex %>%
+  ## only include counties that finished counting
+  filter(eevp == 100)
+
+nrow(elex_finished)
+```
+
+### Variation in Continuous Data I
+
+Let's take a look at the `margin2020` variable, which is a continuous variable and shows the margin in % for Joe Biden vs. Donald Trump (-100 = a county voted 100% in favor for Biden and 100 = a county voted 100% in favor for Biden).
+
+```{r, election-example-vis-1, exercise=TRUE}
+elex_finished %>% 
+  ggplot(aes(margin2020)) +
+  geom_histogram() +
+  ## add a vertical line at 0
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_minimal()
+```
+
+
+-   Which values are the most common? Why?
+
+-   Which values are rare? Why? Does that match your expectations?
+
+-   Are there any outliers, which are points that don't fit the pattern or fall far away from the rest of the data?
+
+-   Are there any impossible points, which might be the result of data entry errors or something else?
+
+Many of the questions above will prompt you to explore a relationship between variables, to see if the values of one variable can explain the values of another variable.
+
+As we can see, a vast majority of counties leaned towards Trump. *But land doesn't vote.* How does win margin compare to the vote size in a given county?
+
+### Covariation with Continuous Data I
+
+If we plot the vote size on the y-axis (on a log-scale) we can see how Biden could win the majority of votes. Despite having won less counties overall he won the most populous counties and thus (likely) the election.
+
+```{r, election-example-vis-3, exercise=TRUE, fig.width=10, fig.height=7}
+plot_title <- "Margins of US 2020 Election by logged Number of Votes per County"
+plot_subtitle <-  "Note: Only counties with completed vote counts included.\n"
+plot_caption <-  glue("\nSource: New York Times. Last updated: {as.character(elex$retrieved_time)[1]}.")
+
+
+elex_finished %>% 
+  ## rename the votes variable
+  rename(`Number of Votes` = votes) %>% 
+  ggplot(aes(margin2020, `Number of Votes`, color = margin2020_cat)) +
+  geom_point(aes(size = `Number of Votes`), show.legend = T) +
+  ## turn the y axis into a log scale
+  scale_y_log10() +
+  ## add a vertical line at 0
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  ## add a blue red color scale
+  scale_color_discrete_diverging("Blue-Red 2", name = "% Margin 2020", rev = T) +
+  ## add labels
+  labs(title = plot_title, 
+       subtitle = plot_subtitle,
+       caption = plot_caption,
+       x = "% Margin US 2020 Election\n",
+       y = "Logged Number of Votes per County") +
+  ## rename the axis ticks
+  scale_x_continuous(breaks = c(-50, 0 , 50), 
+                     labels = c("+50% Biden", "0%", "+50% Trump")) +
+  theme_minimal()
+```
+
+### Covariation with Continuous Data II
+
+Another interesting question we can ask ourselves is how votes changed from the 2016 to the 2020 election.
+
+It's astonishing how little the margins changed in many counties.
+
+Everything that is **above the regression line** means Biden overperformed and Trump underperformed compared to 2016.
+
+Everything that is **below the regression line** means Biden underperformed and Trump overperformed compared to 2016
+
+```{r, election-example-vis-4, exercise=TRUE, fig.width=10, fig.height=7}
+plot_title <- "Margins of US Election 2012 compared to 2020"
+plot_subtitle <- "Note: Only counties with completed vote counts included.\n"
+plot_caption <- glue("\nSource: New York Times. Last updated: {as.character(elex$retrieved_time)[1]}.")
+
+
+elex_finished %>% 
+  rename(`Number of Votes` = votes) %>% 
+  ggplot(aes(margin2020, margin2016)) +
+  geom_point(aes(size = `Number of Votes`,  color = margin2020_cat)) +
+  ## add a regression line
+  geom_smooth(method = "lm") +
+  ## add a correlation on top of the graph
+  stat_cor()  +
+  ## add a blue-red color scale
+  scale_color_discrete_diverging("Blue-Red 2", name = "% Margin 2020", rev = T) +
+  theme_minimal()  +
+  ## add labels
+  labs(title = plot_title, 
+       subtitle = plot_subtitle,
+       caption = plot_caption,
+       x = "% Margin US Election 2020\n",
+       y = "% Margin US Election 2016\n") +
+  scale_y_continuous(breaks = c(-50, 0 , 50), labels = c("+50% Clinton", "0%", "+50% Trump"))+
+  scale_x_continuous(breaks = c(-50, 0 , 50), labels = c("+50% Biden", "0%", "+50% Trump"))
+```
+
+If we look at the 2012 results there is more variation.
+
+Everything that is **above the regression line** means Biden overperformed and Trump underperformed compared to 2012.
+
+Everything that is **below the regression line** means Biden underperformed and Trump overperformed compared to 2012
+
+```{r, election-example-vis-5, exercise=TRUE, fig.width=10, fig.height=7}
+plot_title <- "Margins of US Election 2012 compared to 2020"
+plot_subtitle <- "Note: Only counties with completed vote counts included.\n"
+plot_caption <- glue("\nSource: New York Times. Last updated: {as.character(elex$retrieved_time)[1]}.")
+
+elex_finished %>% 
+  rename(`Number of Votes` = votes) %>% 
+  ggplot(aes(margin2020, margin2012)) +
+  geom_point(aes(size = `Number of Votes`,  color = margin2020_cat)) +
+  ## add a regression line
+  geom_smooth(method = "lm") +
+  ## add a correlation on top of the graph
+  stat_cor()  +
+  ## add a blue-red color scale
+  scale_color_discrete_diverging("Blue-Red 2", name = "% Margin 2020",rev = T) +
+  theme_minimal()  +
+  ## add labels
+  labs(title = plot_title, 
+       subtitle = plot_subtitle,
+       caption = plot_caption,
+       x = "% Margin US Election 2020\n",
+       y = "% Margin US Election 2012\n") +
+  scale_y_continuous(breaks = c(-50, 0 , 50), labels = c("+50% Obama", "0%", "+50% Romney"))+
+  scale_x_continuous(breaks = c(-50, 0 , 50), labels = c("+50% Biden", "0%", "+50% Trump"))
+```
+
+### Covariation with Continuous Data III
+
+So what do we do if we have multiple continuous variables that we want to compare? We can use a **Correlogram**.\`
+
+```{r, election-example-vis-6, exercise=TRUE}
+elex_finished %>% 
+  select(absentee_perc, margin2020,
+         margin2016, margin2012, 
+         trump_perc, biden_perc, 
+         jorgensen_perc, logged_votes) %>% 
+  ## create correlation matrix
+  cor() %>% 
+  ## plot correlation matrix
+  corrplot::corrplot(method="number")
+```
+
+
+
+## Categorical Data
+
+### Variation in Categorical Data
+
+Next let's explore *categorical data*. The variable `absentee_count_progress` classifies counties by the count status of absentee ballots. It's a good categorical variable to start with.
+
+```{r, election-example-vis-7, exercise = T}
+
+elex %>% 
+  ggplot(aes(absentee_count_progress, fill = absentee_count_progress)) +
+  ## we don't need to display the color legend
+  geom_bar(show.legend = F) +
+  theme_minimal() +
+  ## color scale
+  scale_fill_viridis_d(na.value="black")
+
+```
+
+Important to acknowledge that many counties fall in the unknown category, highlighting the difficult nature of accumulating this kind of information from counties all across the United States.
+
+### Covariation with Categorical Data I
+
+Now let's see how absentee vote count progress is reported across counties in some crucial battleground states. For that, we can use a so called "heat map".
+
+```{r, election-example-vis-8, exercise=TRUE, fig.width=6, fig.height=8}
+battleground_states <- c("pennsylvania", "georgia", "arizona", "north-carolina", "wisconsin", "michigan", "nevada")
+
+elex %>% 
+  filter(state %in% battleground_states) %>% 
+  count(absentee_count_progress, state) %>% 
+  complete(absentee_count_progress, state, fill = list(n = 0)) %>% 
+  ggplot(aes(absentee_count_progress, state, fill = n+1)) +
+  geom_tile() +
+  scale_fill_viridis_c(name = "Number of Counties", 
+                       trans = "log", 
+                       breaks = c(1, 10, 50), 
+                       labels = c(1, 10, 50)) +
+  geom_text(aes(label = n), color = "white") +
+  coord_equal() +
+  theme_minimal()
+```
+
+It's surprising that there are quite a few counties that apparently didn't count any absentee ballots yet. Especially in states that have already been called like Pennsylvania or Michigan. Maybe an error in the data? This is a good starting point to investigate further but not somethign we are going to do now.
+
+
+### Covariation with Categorical Data II
+
+Sometimes you want to mix categorical and continuous variables. A good visualization for that are so-called boxplots. 
+
+Boxplots display the distribution of data based on a five statistics 
+
+1. "minimum"
+2. first quartile (Q1)
+3. median
+4. third quartile (Q3)
+5. "maximum"  
+
+The minimum is defined as Q1 - 1.5 * Inter Quartiles Range (IQR).
+
+The minimum is defined as Q3 + 1.5 * Inter Quartiles Range (IQR).
+
+The IQR encapsulates 50% of the values.
+
+The next graph shows a boxplot (combined with a violinplot) of Biden vote share and the progress of absentee ballot counts for battleground states. Do counties that have already counted mail-in ballots skew towards Biden?
+
+```{r, election-example-vis-9, exercise=TRUE}
+
+
+elex %>% 
+  filter(state %in% battleground_states) %>% 
+  ggplot(aes(absentee_count_progress, biden_perc)) +
+  geom_violin() +
+  geom_boxplot(width = 0.2) +
+  stat_median_iqr_text() +
+  theme_minimal()
+
+```
+
+No significant differences between the different conditions seem to emerge. On first glance, across all these conditions Biden appears to be losing, on average. But keep in mind that most counties are rural and only represent a small fraction of voters. 
+
+Biden wins are concentrated in the most populous counties. The right visualization will need to account for that.
+
+We could add points and scale the size by the vote count.
+
+```{r}
+elex %>% 
+  filter(state %in% battleground_states) %>% 
+  ggplot(aes(absentee_count_progress, biden_perc)) +
+  geom_point(aes(size = votes)) +
+  geom_violin(alpha = 0.2) +
+  geom_boxplot(width = 0.2, alpha = 0.2) +
+  stat_median_iqr_text() +
+  theme_minimal()
+```
+
+
+## Interactive Graphs
+
+A great way to present and visualize your data is *interactive* graphs. It lets your audience explore graphs themselves.
+
+### Highcharter I
+
+We are going to use the `vaccine` dataset that is included in the `highcharter` library, a wrapper for the popular interactive charts library written in JavaScript. 
+
+```{r, covid-example-interactive, exercise=TRUE}
+data(vaccines)
+
+hchart(
+  vaccines, 
+  "heatmap", 
+  hcaes(
+    x = year,
+    y = state, 
+    value = count
+    )
+  ) %>%
+  hc_colorAxis(
+    stops = color_stops(10, viridisLite::inferno(10, direction = -1)),
+    type = "logarithmic"
+  ) %>%
+  hc_yAxis(
+    title = list(text = ""),
+    reversed = TRUE, 
+    offset = -20,
+    tickLength = 0,
+    gridLineWidth = 0, 
+    minorGridLineWidth = 0,
+    labels = list(style = list(fontSize = "9px"))
+  ) %>%
+  hc_tooltip(
+    formatter = fntltp
+    ) %>%
+  hc_xAxis(
+    plotLines = list(plotline)) %>%
+  hc_title(
+    text = "Infectious Diseases and Vaccines"
+    ) %>%
+  hc_subtitle(
+    text = "Number of Measles cases per 100,000 people"
+  ) %>% 
+  hc_legend(
+    layout = "horizontal",
+    verticalAlign = "top",
+    align = "left",
+    valueDecimals = 0
+  ) %>%
+  hc_size(height = 1000)
+```
+
+### Highcharter II
+
+Let's try to recreate this graph with COVID-19 data.
+
+```{r, covid-example-interactive-1, exercise=TRUE}
+european_countries <- c("Belgium", "France", "Austria", "Denmark", "France", "Italy", "Netherlands", "Sweden", "Norway", "United Kingdom", "Switzerland", "Czechia", "Spain", "Greece", "Ireland", "Romania", "Croatia", "Finland", "Estonia", "Lithuania", "Portugal", "Hungary", "Poland", "Latvia", "Malta", "Slovakia", "Albania", "Bulgaria", "Serbia", "Bosnia_and_Herzegovina")
+
+covid_heatmap <- covid_ecdc %>% 
+  ## aggregate date variable to weekly
+  mutate(week_number = lubridate::floor_date(date_rep, "week") %>% lubridate::week()) %>% 
+  ## exclude this week
+  filter(week_number <= 44) %>%
+  ## only include selected european countries
+  filter(cntry %in% european_countries) %>% 
+  ## aggregate dataset to countries by week
+  group_by(week_number, cntry) %>% 
+  ## mean per week
+  summarize(avg_14days_cases_per100k = mean(avg_14days_cases_per100k, na.rm = T)) %>% 
+  ungroup() %>% 
+  ## turn zeroes into NA
+  mutate(avg_14days_cases_per100k = ifelse(round(avg_14days_cases_per100k) == 0, NA, avg_14days_cases_per100k)) 
+
+
+covid_heatmap %>% 
+  hchart(
+    "heatmap", 
+    hcaes(
+      x = week_number,
+      y = cntry, 
+      value = avg_14days_cases_per100k
+      )
+    ) %>%
+    hc_colorAxis(
+      stops = color_stops(12, viridisLite::inferno(12, direction = -1))
+    ) %>%
+    hc_yAxis(
+      title = list(text = ""),
+      reversed = TRUE, 
+      offset = -20,
+      tickLength = 0,
+      gridLineWidth = 0, 
+      minorGridLineWidth = 0,
+      labels = list(style = list(fontSize = "9px"))
+    ) %>%
+    hc_tooltip(
+      formatter = fntltp
+      ) %>%
+    hc_title(
+      text = "COVID-19 in Europe"
+      ) %>%
+    hc_subtitle(
+      text = "Average 14 days Number of COVID cases per 100,000 people"
+    ) %>% 
+    hc_legend(
+      layout = "horizontal",
+      verticalAlign = "top",
+      align = "left",
+      valueDecimals = 0
+    ) %>%
+    hc_size(height = 1000)
+  
+```
+
+### Some other resources for Interactive Graphs
+
+
++ [highcharter library](https://jkunst.com/highcharter/)
+![](https://jkunst.com/highcharter/logo.png)
+
++ [apexcharter library](https://dreamrs.github.io/apexcharter/)
+![](https://i.imgur.com/rDMbGEY.jpg)
+
+
++ [plotly library](https://plotly.com/r/getting-started/)
+![](http://www.sthda.com/sthda/RDoc/images/plotly-create-interactive-plots-r.png)
+
+## Visualization for Statistical Models
+
+This is a topic in itself and we won't have time to explore this today. Nonetheless, I want to link a few libraries that are great to use.
+
+- `sjPlot`'s [`plot_model`](https://strengejacke.github.io/sjPlot/articles/plot_model_estimates.html) function
+
+This is a very [powerful function](https://strengejacke.github.io/sjPlot/articles/plot_model_estimates.html) that allows you to plot coefficients and estimate from all kinds of models (linear, logistic regression, multilevel, bayesian models and more!)
+
+![](https://strengejacke.github.io/sjPlot/articles/plot_model_estimates_files/figure-html/unnamed-chunk-10-1.png){width="99%"}
+
+
+- `easystats` packageverse
+
+[**easystats**](https://github.com/easystats/) is a collection of R packages, which aims to provide a unifying and consistent framework to tame, discipline and harness the scary R statistics and their pesky models.
+
+<p>
+
+<a href = "https://github.com/easystats/insight"><img src='https://github.com/easystats/insight/raw/master/man/figures/logo.png' align="left" height="84" /></a>
+<a href = "https://github.com/easystats/bayestestR"><img src='https://github.com/easystats/bayestestR/raw/master/man/figures/logo.png' align="left" height="84" /></a>
+<a href = "https://github.com/easystats/parameters"><img src='https://github.com/easystats/parameters/raw/master/man/figures/logo.png' align="left" height="84" /></a>
+<a href = "https://github.com/easystats/performance"><img src='https://github.com/easystats/performance/raw/master/man/figures/logo.png' align="left" height="84" /></a>
+<a href = "https://github.com/easystats/effectsize"><img src='https://github.com/easystats/effectsize/raw/master/man/figures/logo.png' align="left" height="84" /></a>
+<a href = "https://github.com/easystats/modelbased"><img src='https://github.com/easystats/modelbased/raw/master/man/figures/logo.png' align="left" height="84" /></a>
+<a href = "https://github.com/easystats/correlation"><img src='https://github.com/easystats/correlation/raw/master/man/figures/logo.png' align="left" height="84" /></a>
+<a href = "https://github.com/easystats/see"><img src='https://github.com/easystats/see/raw/master/man/figures/logo.png' align="left" height="84" /></a>
+<a href = "https://github.com/easystats/report"><img src='https://github.com/easystats/report/raw/master/man/figures/logo.png' align="left" height="84" /></a>
+<br />
+</p>
+
+<br>
+<br>
+
+
+
+The following libraries are part of `easystats`
+
+
++ [parameters](https://github.com/easystats/parameters)
+
+📊 Obtain a table containing all information about the parameters of your models
+
+Plotting functions for the **parameters** package are demonstrated [in this vignette](https://easystats.github.io/see/articles/parameters.html).
+
+<br>
+
++ [modelbased](https://github.com/easystats/modelbased)
+
+📈 Estimate effects, group averages and contrasts between groups based on statistical models
+
+Plotting functions for the **modelbased** package are demonstrated [in this vignette](https://easystats.github.io/see/articles/modelbased.html).
+
+
+<br>
+
++ [performance](https://github.com/easystats/performance)
+
+💪 Models' quality and performance metrics (R2, ICC, LOO, AIC, BF, ...)
+
+Plotting functions for the **performance** package are demonstrated [in this vignette](https://easystats.github.io/see/articles/performance.html).
+
+
+<br>
+
++ [correlation](https://github.com/easystats/correlation)
+
+🔗 Your all-in-one package to run correlations
+
+Plotting functions for the **correlation** package are demonstrated [in this vignette](https://easystats.github.io/see/articles/correlation.html).
+
+
+<br>
+
++ [effectsize](https://github.com/easystats/effectsize)
+
+🐉 Compute and work with indices of effect size and standardized parameters
+
+Plotting functions for the **effectsize** package are demonstrated [in this vignette](https://easystats.github.io/see/articles/effectsize.html).
+
+<br>
+
++ [bayestestR](https://github.com/easystats/bayestestR)
+
+👻 Great for beginners or experts of Bayesian statistics
+
+Plotting functions for the **bayestestR** package are demonstrated [in this vignette](https://easystats.github.io/see/articles/bayestestR.html).
+
+
+## Fin
+
+### Congratulations! You made it to the end
+
+![](https://media1.giphy.com/media/3oz8xAFtqoOUUrsh7W/giphy.gif)
+
+
+This `learnr` tutorial is available under this URL:
+
+https://favstats.shinyapps.io/dataviz/
+
+Some more resources for you to explore:
+
++ [Data Visualization: A practical introduction](https://socviz.co/)
++ [R for Data Science](https://r4ds.had.co.nz/)
+
+<hr>
+
+Contact: Fabio Votta 
+
+<a href="http://github.com/favstats"><i class="fa fa-github fa-fw"></i>&nbsp;favstats</a> 
+
+<a href="https://twitter.com/favstats"> <i class="fa fa-twitter fa-fw"></i>&nbsp;@favstats</a>
+
+<a href="http://www.favstats.eu/"><i class="fa fa-address-card"></i>&nbsp; www.favstats.eu</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
